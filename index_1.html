@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invernadero</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.4/mqtt.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f0f4f0; padding: 20px; max-width: 600px; margin: auto; }
+    h1 { color: #2c7a2c; text-align: center; margin-bottom: 6px; font-size: 1.4em; }
+    #estado-mqtt { text-align: center; font-size: 0.8em; margin-bottom: 16px; padding: 4px 12px; border-radius: 12px; display: inline-block; width: 100%; }
+    .conectado    { background: #d4edda; color: #155724; }
+    .desconectado { background: #f8d7da; color: #721c24; }
+    .conectando   { background: #fff3cd; color: #856404; }
+    h2 { color: #2c7a2c; font-size: 1em; margin: 16px 0 8px; }
+    .card { background: white; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    .fila { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .nombre { font-weight: bold; font-size: 0.95em; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
+    .on     { background: #d4edda; color: #155724; }
+    .off    { background: #f8d7da; color: #721c24; }
+    .auto   { background: #cce5ff; color: #004085; }
+    .manual { background: #fff3cd; color: #856404; }
+    .sensores { font-size: 0.85em; color: #555; margin-top: 4px; }
+    .botones { display: flex; gap: 6px; flex-wrap: wrap; }
+    button { padding: 6px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.82em; font-weight: bold; }
+    .btn-on     { background: #2c7a2c; color: white; }
+    .btn-off    { background: #c0392b; color: white; }
+    .btn-auto   { background: #0066cc; color: white; }
+    .btn-manual { background: #e67e00; color: white; }
+    .barra-bg { background: #eee; border-radius: 4px; height: 8px; margin-top: 4px; }
+    .barra-fill { height: 8px; border-radius: 4px; transition: width 0.5s; }
+    .umbral-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .umbral-form input { width: 70px; padding: 5px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.9em; }
+    .umbral-form button { background: #2c7a2c; color: white; }
+    .grid-sensores { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+    .sensor-item { background: #f8f8f8; border-radius: 8px; padding: 8px; font-size: 0.85em; }
+    .sensor-val { font-size: 1.2em; font-weight: bold; color: #2c7a2c; }
+    hr { border: none; border-top: 1px solid #e0e0e0; margin: 10px 0; }
+    .ultima-act { text-align: center; font-size: 0.75em; color: #999; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+<h1>🌿 Invernadero</h1>
+<div id="estado-mqtt" class="conectando">Conectando...</div>
+
+<!-- TEMPERATURA -->
+<div class="card">
+  <h2>🌡️ Temperatura y Humedad Ambiente</h2>
+  <div class="grid-sensores">
+    <div class="sensor-item">
+      <div>Sensor 1</div>
+      <div class="sensor-val" id="temp0">--°C</div>
+      <div style="font-size:0.8em;color:#555">H.amb: <span id="hamb0">--%</span></div>
+    </div>
+    <div class="sensor-item">
+      <div>Sensor 2</div>
+      <div class="sensor-val" id="temp1">--°C</div>
+      <div style="font-size:0.8em;color:#555">H.amb: <span id="hamb1">--%</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ELECTROVÁLVULAS -->
+<div class="card">
+  <h2>💧 Electroválvulas de Riego</h2>
+  <div class="fila">
+    <span style="font-size:0.85em">Umbral humedad suelo:</span>
+    <div class="umbral-form">
+      <input type="number" id="inp-umb-hum" min="0" max="100" value="40">
+      <button onclick="enviarUmbral('UMB_HUM','inp-umb-hum')">Aplicar</button>
+    </div>
+  </div>
+  <hr>
+  <div id="valvulas"></div>
+</div>
+
+<!-- VENTILADORES -->
+<div class="card">
+  <h2>🌀 Ventiladores</h2>
+  <div class="fila">
+    <span style="font-size:0.85em">Umbral temperatura:</span>
+    <div class="umbral-form">
+      <input type="number" id="inp-umb-temp" min="0" max="60" value="30">
+      <button onclick="enviarUmbral('UMB_TEMP','inp-umb-temp')">Aplicar</button>
+    </div>
+  </div>
+  <hr>
+  <div id="ventiladores"></div>
+</div>
+
+<!-- LUCES -->
+<div class="card">
+  <h2>💡 Luces de Crecimiento</h2>
+  <div class="fila">
+    <span style="font-size:0.85em">Umbral luminosidad:</span>
+    <div class="umbral-form">
+      <input type="number" id="inp-umb-luz" min="0" max="100" value="30">
+      <button onclick="enviarUmbral('UMB_LUZ','inp-umb-luz')">Aplicar</button>
+    </div>
+  </div>
+  <hr>
+  <div id="luces"></div>
+</div>
+
+<p class="ultima-act">Última actualización: <span id="ultima-act">--</span></p>
+
+<script>
+// ===================== MQTT =====================
+const BROKER   = "wss://broker.hivemq.com:8884/mqtt";
+const TOPIC_RX = "invernadero/alexis/datos";
+const TOPIC_TX = "invernadero/alexis/cmd";
+
+const client = mqtt.connect(BROKER, {
+  clientId: "web_invernadero_" + Math.random().toString(16).slice(2),
+  clean: true,
+  reconnectPeriod: 3000
+});
+
+const elEstado = document.getElementById("estado-mqtt");
+
+client.on("connect", () => {
+  elEstado.textContent = "✅ Conectado";
+  elEstado.className = "conectado";
+  client.subscribe(TOPIC_RX);
+});
+
+client.on("offline", () => {
+  elEstado.textContent = "❌ Sin conexión";
+  elEstado.className = "desconectado";
+});
+
+client.on("reconnect", () => {
+  elEstado.textContent = "🔄 Reconectando...";
+  elEstado.className = "conectando";
+});
+
+client.on("message", (topic, payload) => {
+  const msg = payload.toString();
+  if (msg.startsWith("DATOS")) parsearDatos(msg);
+});
+
+function enviarCmd(cmd) {
+  client.publish(TOPIC_TX, cmd);
+}
+
+function enviarUmbral(param, inputId) {
+  const val = document.getElementById(inputId).value;
+  enviarCmd("SET_" + param + ":" + val);
+}
+
+// ===================== ESTADO LOCAL =====================
+let estado = {
+  humedadSuelo: [0,0,0,0],
+  temperatura:  [0,0],
+  humedadAmb:   [0,0],
+  luz:          [0,0],
+  umbralHum: 40, umbralTemp: 30, umbralLuz: 30,
+  estadoValvula:     [false,false,false,false],
+  estadoVentilador:  [false,false],
+  estadoLuz:         [false,false],
+  modoValvula:       [true,true,true,true],
+  modoVentilador:    [true,true],
+  modoLuz:           [true,true]
+};
+
+// Mostrar controles desde el arranque sin esperar datos del Mega
+window.addEventListener('load', renderizar);
+
+// ===================== PARSEO =====================
+function parsearDatos(msg) {
+  const p = msg.split("|");
+  if (p.length < 12) return;
+
+  estado.humedadSuelo   = p[1].split(",").map(Number);
+  estado.temperatura    = p[2].split(",").map(Number);
+  estado.humedadAmb     = p[3].split(",").map(Number);
+  estado.luz            = p[4].split(",").map(Number);
+
+  const umbs = p[5].split(",").map(Number);
+  estado.umbralHum  = umbs[0];
+  estado.umbralTemp = umbs[1];
+  estado.umbralLuz  = umbs[2];
+
+  estado.estadoValvula    = p[6].split(",").map(v => v==="1");
+  estado.estadoVentilador = p[7].split(",").map(v => v==="1");
+  estado.estadoLuz        = p[8].split(",").map(v => v==="1");
+  estado.modoValvula      = p[9].split(",").map(v => v==="A");
+  estado.modoVentilador   = p[10].split(",").map(v => v==="A");
+  estado.modoLuz          = p[11].split(",").map(v => v==="A");
+
+  renderizar();
+}
+
+// ===================== RENDER =====================
+function barra(val, umbral) {
+  const color = val < umbral ? "#c0392b" : "#2c7a2c";
+  return `<div class="barra-bg"><div class="barra-fill" style="width:${val}%;background:${color}"></div></div>`;
+}
+
+function renderizar() {
+  // Temperatura
+  for (let i = 0; i < 2; i++) {
+    document.getElementById("temp"+i).textContent = estado.temperatura[i].toFixed(1) + "°C";
+    document.getElementById("hamb"+i).textContent = estado.humedadAmb[i].toFixed(1) + "%";
+  }
+
+  // Umbrales en inputs
+  document.getElementById("inp-umb-hum").value  = estado.umbralHum;
+  document.getElementById("inp-umb-temp").value = estado.umbralTemp;
+  document.getElementById("inp-umb-luz").value  = estado.umbralLuz;
+
+  // Válvulas
+  let htmlV = "";
+  for (let i = 0; i < 4; i++) {
+    const on   = estado.estadoValvula[i];
+    const auto = estado.modoValvula[i];
+    const hum  = estado.humedadSuelo[i];
+    htmlV += `<div class="fila">
+      <div>
+        <div class="nombre">Electroválvula ${i+1}</div>
+        <div class="sensores">Humedad: ${hum}% (umbral: ${estado.umbralHum}%)</div>
+        ${barra(hum, estado.umbralHum)}
+      </div>
+      <div class="botones">
+        <span class="badge ${on?"on":"off"}">${on?"ABIERTA":"CERRADA"}</span>
+        <span class="badge ${auto?"auto":"manual"}">${auto?"AUTO":"MANUAL"}</span>
+        ${!auto ? `<button class="${on?"btn-off":"btn-on"}" onclick="accionValvula(${i})">${on?"Cerrar":"Abrir"}</button>` : ""}
+        <button class="${auto?"btn-manual":"btn-auto"}" onclick="toggleModoValvula(${i})">${auto?"→ Manual":"→ Auto"}</button>
+      </div>
+    </div>${i<3?"<hr>":""}`;
+  }
+  document.getElementById("valvulas").innerHTML = htmlV;
+
+  // Ventiladores
+  let htmlVt = "";
+  for (let i = 0; i < 2; i++) {
+    const on   = estado.estadoVentilador[i];
+    const auto = estado.modoVentilador[i];
+    htmlVt += `<div class="fila">
+      <div>
+        <div class="nombre">Ventilador ${i+1}</div>
+        <div class="sensores">Temp: ${estado.temperatura[i].toFixed(1)}°C (umbral: ${estado.umbralTemp}°C)</div>
+      </div>
+      <div class="botones">
+        <span class="badge ${on?"on":"off"}">${on?"ENCENDIDO":"APAGADO"}</span>
+        <span class="badge ${auto?"auto":"manual"}">${auto?"AUTO":"MANUAL"}</span>
+        ${!auto ? `<button class="${on?"btn-off":"btn-on"}" onclick="accionVentilador(${i})">${on?"Apagar":"Encender"}</button>` : ""}
+        <button class="${auto?"btn-manual":"btn-auto"}" onclick="toggleModoVentilador(${i})">${auto?"→ Manual":"→ Auto"}</button>
+      </div>
+    </div>${i<1?"<hr>":""}`;
+  }
+  document.getElementById("ventiladores").innerHTML = htmlVt;
+
+  // Luces
+  let htmlL = "";
+  for (let i = 0; i < 2; i++) {
+    const on   = estado.estadoLuz[i];
+    const auto = estado.modoLuz[i];
+    const lux  = estado.luz[i];
+    htmlL += `<div class="fila">
+      <div>
+        <div class="nombre">Luz sector ${i+1}</div>
+        <div class="sensores">Luminosidad: ${lux}% (umbral: ${estado.umbralLuz}%)</div>
+        ${barra(lux, estado.umbralLuz)}
+      </div>
+      <div class="botones">
+        <span class="badge ${on?"on":"off"}">${on?"ENCENDIDA":"APAGADA"}</span>
+        <span class="badge ${auto?"auto":"manual"}">${auto?"AUTO":"MANUAL"}</span>
+        ${!auto ? `<button class="${on?"btn-off":"btn-on"}" onclick="accionLuz(${i})">${on?"Apagar":"Encender"}</button>` : ""}
+        <button class="${auto?"btn-manual":"btn-auto"}" onclick="toggleModoLuz(${i})">${auto?"→ Manual":"→ Auto"}</button>
+      </div>
+    </div>${i<1?"<hr>":""}`;
+  }
+  document.getElementById("luces").innerHTML = htmlL;
+
+  // Hora última actualización
+  const ahora = new Date();
+  document.getElementById("ultima-act").textContent = ahora.toLocaleTimeString();
+}
+
+// ===================== ACCIONES =====================
+function accionValvula(i) {
+  const cmd = `MAN_VALVULA_${i+1}:${estado.estadoValvula[i]?"OFF":"ON"}`;
+  estado.estadoValvula[i] = !estado.estadoValvula[i];
+  enviarCmd(cmd);
+  renderizar();
+}
+function toggleModoValvula(i) {
+  estado.modoValvula[i] = !estado.modoValvula[i];
+  enviarCmd(`MODO_VALVULA_${i+1}:${estado.modoValvula[i]?"A":"M"}`);
+  renderizar();
+}
+function accionVentilador(i) {
+  const cmd = `MAN_VENTILADOR_${i+1}:${estado.estadoVentilador[i]?"OFF":"ON"}`;
+  estado.estadoVentilador[i] = !estado.estadoVentilador[i];
+  enviarCmd(cmd);
+  renderizar();
+}
+function toggleModoVentilador(i) {
+  estado.modoVentilador[i] = !estado.modoVentilador[i];
+  enviarCmd(`MODO_VENTILADOR_${i+1}:${estado.modoVentilador[i]?"A":"M"}`);
+  renderizar();
+}
+function accionLuz(i) {
+  const cmd = `MAN_LUZ_${i+1}:${estado.estadoLuz[i]?"OFF":"ON"}`;
+  estado.estadoLuz[i] = !estado.estadoLuz[i];
+  enviarCmd(cmd);
+  renderizar();
+}
+function toggleModoLuz(i) {
+  estado.modoLuz[i] = !estado.modoLuz[i];
+  enviarCmd(`MODO_LUZ_${i+1}:${estado.modoLuz[i]?"A":"M"}`);
+  renderizar();
+}
+</script>
+</body>
+</html>
